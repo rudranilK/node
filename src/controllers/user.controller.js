@@ -1,5 +1,4 @@
 const User = require("../schema/user.schema");
-const Post = require("../schema/post.schema");
 
 module.exports.getUsersWithPostCount = async (req, res) => {
 
@@ -8,22 +7,34 @@ module.exports.getUsersWithPostCount = async (req, res) => {
   let pageNumber = (req.query && req.query.page) ? parseInt(req.query.page) : 1;
 
   try {
-    //DB Queries
-    const posts = await Post.find();
-    const userLength = await User.find().count();
-    const users = await User.find()
-      .select(['_id', 'name'])
-      .skip((pageNumber - 1) * pageSize)
-      .limit(pageSize)
-      .sort({ name: 1 });
+    //Aggregate implementation
+    var pipeline = [
+      { $skip: (pageNumber - 1) * pageSize },
+      { $limit: pageSize },
+      { $sort: { name: 1 } },
+      {
+        $lookup: {
+          from: 'posts',    //coll to join
+          localField: '_id',
+          foreignField: 'userId',
+          as: 'posts'       //field name for joined doc
+        }
+      },
+      {
+        $project: {
+          name: '$name',
+          posts: { $size: "$posts" }
+        }
+      }
+    ]
 
-    users.forEach((e) => {
-      var postNo = posts.filter(p => p['userId'].equals(e['_id']));
-      e['_doc']['posts'] = postNo.length;
-    });
+    //DB Queries
+    const users = await User.aggregate(pipeline);
+    const userLength = await User.find().count();
+
     data.users = users;
 
-    // pagination
+    //Pagination
     const pagination = {
       totalDocs: userLength,
       limit: pageSize,
